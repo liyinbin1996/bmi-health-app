@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BMI健康管家</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: #4F46E5;
+            --success: #10B981;
+            --warning: #F59E0B;
+            --danger: #EF4444;
+            --bg-dark: #0F172A;
+            --bg-card: #1E293B;
+            --text: #F8FAFC;
+            --text-secondary: #94A3B8;
+        }
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, var(--bg-dark) 0%, #1a1a2e 100%);
+            min-height: 100vh;
+            color: var(--text);
+        }
+        .loading {
+            position: fixed;
+            inset: 0;
+            background: var(--bg-dark);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(79, 70, 229, 0.2);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .auth-container {
+            position: fixed;
+            inset: 0;
+            background: linear-gradient(135deg, var(--bg-dark) 0%, #1a1a2e 100%);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            z-index: 900;
+        }
+        .auth-container.active { display: flex; }
+        .auth-box {
+            background: var(--bg-card);
+            border-radius: 1.5rem;
+            padding: 2rem;
+            width: 100%;
+            max-width: 380px;
+        }
+        .auth-header {
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+        .auth-header h1 { font-size: 1.5rem; margin-top: 0.5rem; }
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .tab {
+            flex: 1;
+            padding: 0.75rem;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            border-radius: 0.5rem;
+            cursor: pointer;
+        }
+        .tab.active { background: var(--primary); color: white; }
+        .form { display: none; }
+        .form.active { display: block; }
+        .input-group { margin-bottom: 1rem; }
+        .input-group label {
+            display: block;
+            margin-bottom: 0.25rem;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+        }
+        .input-group input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            border: 2px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.05);
+            color: var(--text);
+            font-size: 1rem;
+        }
+        .input-group input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        .btn {
+            width: 100%;
+            padding: 0.875rem;
+            border-radius: 0.5rem;
+            border: none;
+            background: var(--primary);
+            color: white;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .btn:hover { opacity: 0.9; }
+        .error {
+            color: var(--danger);
+            font-size: 0.875rem;
+            text-align: center;
+            margin-top: 0.5rem;
+            min-height: 1.25rem;
+        }
+        .nav {
+            background: rgba(30, 41, 59, 0.9);
+            padding: 1rem;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            display: none;
+        }
+        .nav.active { display: block; }
+        .nav-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .nav-links { display: flex; gap: 0.5rem; }
+        .nav-link {
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            color: var(--text-secondary);
+            background: transparent;
+            border: none;
+            cursor: pointer;
+        }
+        .nav-link.active { background: var(--primary); color: white; }
+        .main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 5rem 1rem 2rem;
+            display: none;
+        }
+        .main.active { display: block; }
+        .page { display: none; }
+        .page.active { display: block; animation: fadeIn 0.3s; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } }
+        h2 { margin-bottom: 0.5rem; }
+        .subtitle { color: var(--text-secondary); margin-bottom: 1.5rem; }
+        .card {
+            background: var(--bg-card);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+        .grid {
+            display: grid;
+            gap: 1rem;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        }
+        .bmi-result {
+            text-align: center;
+            padding: 1.5rem;
+        }
+        .bmi-number {
+            font-size: 4rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--primary), var(--success));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .bmi-tag {
+            display: inline-block;
+            padding: 0.5rem 1rem;
+            border-radius: 2rem;
+            margin-top: 0.5rem;
+            font-weight: 600;
+        }
+        .tag-normal { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+        .tag-low { background: rgba(59, 130, 246, 0.2); color: #3B82F6; }
+        .tag-high { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+        .tag-obese { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 0.75rem;
+        }
+        .stat {
+            background: rgba(255,255,255,0.05);
+            padding: 1rem;
+            border-radius: 0.75rem;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+        }
+        select.form-input {
+            appearance: none;
+            cursor: pointer;
+        }
+        .records {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .record {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.75rem;
+            background: rgba(255,255,255,0.05);
+            border-radius: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .record-date { font-weight: 600; }
+        .record-info {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: var(--bg-card);
+            padding: 1rem 2rem;
+            border-radius: 1rem;
+            border: 1px solid var(--primary);
+            z-index: 1000;
+            opacity: 0;
+            transition: all 0.3s;
+        }
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <p style="color: var(--text-secondary); margin-top: 1rem;">正在加载...</p>
+    </div>
+
+    <div class="auth-container" id="auth">
+        <div class="auth-box">
+            <div class="auth-header">
+                <div style="font-size: 3rem;">🏃</div>
+                <h1>BMI健康管家</h1>
+            </div>
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('login')">登录</button>
+                <button class="tab" onclick="switchTab('register')">注册</button>
+            </div>
+            <form class="form active" id="loginForm">
+                <div class="input-group">
+                    <label>邮箱</label>
+                    <input type="email" id="loginEmail" required>
+                </div>
+                <div class="input-group">
+                    <label>密码</label>
+                    <input type="password" id="loginPassword" required>
+                </div>
+                <button type="submit" class="btn">登录</button>
+                <div class="error" id="loginError"></div>
+            </form>
+            <form class="form" id="registerForm">
+                <div class="input-group">
+                    <label>邮箱</label>
+                    <input type="email" id="registerEmail" required>
+                </div>
+                <div class="input-group">
+                    <label>密码</label>
+                    <input type="password" id="registerPassword" required minlength="6">
+                </div>
+                <div class="input-group">
+                    <label>确认密码</label>
+                    <input type="password" id="registerConfirm" required>
+                </div>
+                <button type="submit" class="btn">注册</button>
+                <div class="error" id="registerError"></div>
+            </form>
+        </div>
+    </div>
+
+    <nav class="nav" id="nav">
+        <div class="nav-content">
+            <div style="font-weight: 700; color: var(--primary);">🏃 BMI健康管家</div>
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <span id="userEmail" style="font-size: 0.875rem; color: var(--text-secondary);"></span>
+                <button onclick="logout()" style="padding: 0.5rem 1rem; background: rgba(239,68,68,0.2); color: var(--danger); border: none; border-radius: 0.5rem; cursor: pointer;">退出</button>
+            </div>
+            <div class="nav-links">
+                <button class="nav-link active" onclick="showPage('p1')">📊 BMI</button>
+                <button class="nav-link" onclick="showPage('p2')">🎯 目标</button>
+                <button class="nav-link" onclick="showPage('p3')">📝 打卡</button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="main" id="main">
+        <div class="page active" id="p1">
+            <h2>BMI 计算器</h2>
+            <p class="subtitle">输入身高体重，了解身体质量指数</p>
+            <div class="grid">
+                <div class="card">
+                    <div class="card-title">📝 输入信息</div>
+                    <div class="input-group">
+                        <label>身高 (cm)</label>
+                        <input type="number" id="h" min="100" max="250">
+                    </div>
+                    <div class="input-group">
+                        <label>体重 (kg)</label>
+                        <input type="number" id="w" min="30" max="300" step="0.1">
+                    </div>
+                    <button class="btn" onclick="calcBMI()">计算 BMI</button>
+                </div>
+                <div class="card">
+                    <div class="card-title">📊 BMI 结果</div>
+                    <div class="bmi-result">
+                        <div class="bmi-number" id="bmiVal">--</div>
+                        <div class="bmi-tag" id="bmiTag">请输入数据</div>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-title">📏 健康体重范围</div>
+                <div class="stats">
+                    <div class="stat">
+                        <div class="stat-value" id="wMin">--</div>
+                        <div class="stat-label">下限 (kg)</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" id="wMax">--</div>
+                        <div class="stat-label">上限 (kg)</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="page" id="p2">
+            <h2>🎯 目标设定</h2>
+            <p class="subtitle">设定健康目标，制定专属计划</p>
+            <div class="card">
+                <div class="card-title">当前状态</div>
+                <div class="stats">
+                    <div class="stat">
+                        <div class="stat-value" id="cBMI">--</div>
+                        <div class="stat-label">当前 BMI</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" id="cWeight">--</div>
+                        <div class="stat-label">当前体重</div>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-title">目标设定</div>
+                <div class="input-group">
+                    <label>目标 BMI</label>
+                    <select id="tBMI" class="form-input">
+                        <option value="">请选择</option>
+                        <option value="20">20 (标准)</option>
+                        <option value="21">21 (适中)</option>
+                        <option value="22">22 (理想)</option>
+                        <option value="23">23 (适中)</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label>计划周期</label>
+                    <select id="period" class="form-input">
+                        <option value="">请选择</option>
+                        <option value="30">30天</option>
+                        <option value="60">60天</option>
+                        <option value="90">90天</option>
+                    </select>
+                </div>
+                <button class="btn" onclick="saveGoal()">保存目标</button>
+            </div>
+            <div class="card" id="planCard" style="display: none;">
+                <div class="card-title">目标分析</div>
+                <div class="bmi-result">
+                    <div class="bmi-number" id="tWeight">-- kg</div>
+                    <div style="color: var(--text-secondary); margin-top: 0.5rem;">目标体重</div>
+                </div>
+                <div class="stats" style="margin-top: 1rem;">
+                    <div class="stat">
+                        <div class="stat-value" id="loss">--</div>
+                        <div class="stat-label">需减重(kg)</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" id="daily">--</div>
+                        <div class="stat-label">每日缺口(kcal)</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="page" id="p3">
+            <h2>📝 每日打卡</h2>
+            <p class="subtitle">记录饮食和运动</p>
+            <div class="grid">
+                <div class="card">
+                    <div class="card-title">🍽️ 今日摄入</div>
+                    <div class="input-group">
+                        <label>基础代谢</label>
+                        <input type="number" id="base" value="1500">
+                    </div>
+                    <div class="input-group">
+                        <label>早餐</label>
+                        <input type="number" id="bf" value="0">
+                    </div>
+                    <div class="input-group">
+                        <label>午餐</label>
+                        <input type="number" id="ln" value="0">
+                    </div>
+                    <div class="input-group">
+                        <label>晚餐</label>
+                        <input type="number" id="dn" value="0">
+                    </div>
+                    <div class="input-group">
+                        <label>零食</label>
+                        <input type="number" id="sn" value="0">
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-title">🏃 今日消耗</div>
+                    <div class="input-group">
+                        <label>运动消耗</label>
+                        <input type="number" id="ex" value="0">
+                    </div>
+                    <button class="btn" onclick="calcAndSave()">计算并保存</button>
+                    <div class="stats" style="margin-top: 1rem;">
+                        <div class="stat">
+                            <div class="stat-value" id="in">0</div>
+                            <div class="stat-label">总摄入</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-value" id="out">0</div>
+                            <div class="stat-label">总消耗</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-value" id="lossExp">0</div>
+                            <div class="stat-label">预计减重(kg)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-title">📅 历史记录</div>
+                <div class="records" id="records">
+                    <p style="text-align: center; color: var(--text-secondary);">暂无记录</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        // ===== Supabase 配置 =====
+        const SB_URL = 'https://ewxtypevcjxyhnqcurtz.supabase.co';
+        const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3eHR5cGV2Y2p4eWhucWN1cnR6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ2MTM5NDUsImV4cCI6MjEwMDE4OTk0NX0.4tQ4gXf-IlGyGTZDQN_MW3XAanuFk8dEPHwJSgWRozE';
+        
+        // 初始化 Supabase
+        const sb = supabase.createClient(SB_URL, SB_KEY);
+        
+        // 状态
+        let user = null;
+        let profile = null;
+        
+        // 初始化
+        async function init() {
+            const { data: { session } } = await sb.auth.getSession();
+            if (session?.user) {
+                user = session.user;
+                await loadProfile();
+                showApp();
+            } else {
+                showAuth();
+            }
+            document.getElementById('loading').style.display = 'none';
+        }
+        
+        function showAuth() {
+            document.getElementById('auth').classList.add('active');
+            document.getElementById('nav').classList.remove('active');
+            document.getElementById('main').classList.remove('active');
+        }
+        
+        function showApp() {
+            document.getElementById('auth').classList.remove('active');
+            document.getElementById('nav').classList.add('active');
+            document.getElementById('main').classList.add('active');
+            document.getElementById('userEmail').textContent = user.email;
+            loadData();
+        }
+        
+        async function loadProfile() {
+            const { data } = await sb.from('profiles').select('*').eq('id', user.id).single();
+            if (data) {
+                profile = data;
+                document.getElementById('h').value = profile.height || '';
+                document.getElementById('w').value = profile.weight || '';
+                document.getElementById('base').value = profile.basal_metabolism || 1500;
+                if (profile.height && profile.weight) calcBMI();
+                if (profile.target_bmi) {
+                    document.getElementById('tBMI').value = profile.target_bmi;
+                    document.getElementById('period').value = profile.plan_period || '';
+                    showPlan();
+                }
+            }
+        }
+        
+        async function loadData() {
+            await loadProfile();
+            await loadRecords();
+        }
+        
+        // 标签切换
+        function switchTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.form').forEach(f => f.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById(tab + 'Form').classList.add('active');
+        }
+        
+        // 登录
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            const { data, error } = await sb.auth.signInWithPassword({ email, password });
+            if (error) {
+                document.getElementById('loginError').textContent = error.message;
+            } else {
+                user = data.user;
+                showApp();
+            }
+        });
+        
+        // 注册
+        document.getElementById('registerForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('registerEmail').value;
+            const password = document.getElementById('registerPassword').value;
+            const confirm = document.getElementById('registerConfirm').value;
+            if (password !== confirm) {
+                document.getElementById('registerError').textContent = '密码不一致';
+                return;
+            }
+            const { data, error } = await sb.auth.signUp({ email, password });
+            if (error) {
+                document.getElementById('registerError').textContent = error.message;
+            } else {
+                user = data.user;
+                showToast('注册成功！');
+                showApp();
+            }
+        });
+        
+        // 退出
+        async function logout() {
+            await sb.auth.signOut();
+            user = null;
+            profile = null;
+            showAuth();
+        }
+        
+        // 页面切换
+        function showPage(page) {
+            document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById(page).classList.add('active');
+        }
+        
+        // 计算BMI
+        function calcBMI() {
+            const h = parseFloat(document.getElementById('h').value);
+            const w = parseFloat(document.getElementById('w').value);
+            if (!h || !w) return;
+            
+            const bmi = w / ((h/100) ** 2);
+            const bmiVal = Math.round(bmi * 10) / 10;
+            
+            document.getElementById('bmiVal').textContent = bmiVal;
+            document.getElementById('cBMI').textContent = bmiVal;
+            document.getElementById('cWeight').textContent = w + 'kg';
+            
+            let tag, cls;
+            if (bmi < 18.5) { tag = '偏瘦'; cls = 'tag-low'; }
+            else if (bmi < 24) { tag = '正常'; cls = 'tag-normal'; }
+            else if (bmi < 28) { tag = '偏胖'; cls = 'tag-high'; }
+            else { tag = '肥胖'; cls = 'tag-obese'; }
+            
+            const tagEl = document.getElementById('bmiTag');
+            tagEl.textContent = tag;
+            tagEl.className = 'bmi-tag ' + cls;
+            
+            const min = (18.5 * (h/100) ** 2).toFixed(1);
+            const max = (24 * (h/100) ** 2).toFixed(1);
+            document.getElementById('wMin').textContent = min;
+            document.getElementById('wMax').textContent = max;
+            
+            saveProfile({ height: h, weight: w, bmi: bmiVal });
+        }
+        
+        // 保存资料
+        async function saveProfile(data) {
+            if (!user) return;
+            await sb.from('profiles').upsert({
+                id: user.id,
+                email: user.email,
+                ...data,
+                updated_at: new Date().toISOString()
+            });
+        }
+        
+        // 保存目标
+        async function saveGoal() {
+            const tBMI = parseFloat(document.getElementById('tBMI').value);
+            const period = parseInt(document.getElementById('period').value);
+            const h = parseFloat(document.getElementById('h').value);
+            const w = parseFloat(document.getElementById('w').value);
+            
+            if (!tBMI || !period || !h || !w) {
+                showToast('请填写完整信息');
+                return;
+            }
+            
+            const tWeight = tBMI * ((h/100) ** 2);
+            await saveProfile({
+                target_bmi: tBMI,
+                target_weight: Math.round(tWeight * 10) / 10,
+                plan_period: period,
+                plan_start_date: new Date().toISOString().split('T')[0]
+            });
+            
+            await loadProfile();
+            showPlan();
+            showToast('目标已保存！');
+        }
+        
+        // 显示计划
+        function showPlan() {
+            if (!profile?.target_bmi) return;
+            const tWeight = profile.target_weight;
+            const diff = profile.weight - tWeight;
+            const daily = Math.round(Math.abs(diff) * 7700 / profile.plan_period);
+            
+            document.getElementById('tWeight').textContent = tWeight + ' kg';
+            document.getElementById('loss').textContent = Math.abs(diff).toFixed(1);
+            document.getElementById('daily').textContent = daily;
+            document.getElementById('planCard').style.display = 'block';
+        }
+        
+        // 计算并保存
+        async function calcAndSave() {
+            const base = parseInt(document.getElementById('base').value) || 0;
+            const bf = parseInt(document.getElementById('bf').value) || 0;
+            const ln = parseInt(document.getElementById('ln').value) || 0;
+            const dn = parseInt(document.getElementById('dn').value) || 0;
+            const sn = parseInt(document.getElementById('sn').value) || 0;
+            const ex = parseInt(document.getElementById('ex').value) || 0;
+            const w = parseFloat(document.getElementById('w').value) || 0;
+            
+            const intake = bf + ln + dn + sn;
+            const burn = base + ex;
+            const net = intake - burn;
+            const loss = net < 0 ? Math.abs(net) / 7700 : 0;
+            
+            document.getElementById('in').textContent = intake;
+            document.getElementById('out').textContent = burn;
+            document.getElementById('lossExp').textContent = loss.toFixed(3);
+            
+            const today = new Date().toISOString().split('T')[0];
+            await sb.from('daily_records').upsert({
+                user_id: user.id,
+                record_date: today,
+                weight: w,
+                breakfast: bf, lunch: ln, dinner: dn, snacks: sn, exercise: ex,
+                basal_metabolism: base,
+                total_intake: intake,
+                total_consumption: burn,
+                net_calories: net,
+                expected_loss: loss
+            }, { onConflict: 'user_id,record_date' });
+            
+            showToast('保存成功！');
+            loadRecords();
+        }
+        
+        // 加载记录
+        async function loadRecords() {
+            const { data: records } = await sb
+                .from('daily_records')
+                .select('*')
+                .eq('user_id', user.id)
+                .order('record_date', { ascending: false })
+                .limit(20);
+            
+            const container = document.getElementById('records');
+            if (!records?.length) {
+                container.innerHTML = '<p style="text-align: center; color: var(--text-secondary);">暂无记录</p>';
+                return;
+            }
+            
+            container.innerHTML = records.map(r => `
+                <div class="record">
+                    <div>
+                        <div class="record-date">${r.record_date}</div>
+                        <div class="record-info">摄入:${r.total_intake} 消耗:${r.total_consumption}</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="color: ${r.net_calories > 0 ? 'var(--danger)' : 'var(--success)'}; font-weight: 600;">
+                            ${r.net_calories > 0 ? '+' : ''}${r.net_calories}
+                        </div>
+                        <div style="font-size: 0.75rem; color: var(--text-secondary);">
+                            ${r.expected_loss > 0 ? '-' : '+'}${Math.abs(r.expected_loss).toFixed(2)}kg
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // Toast
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.classList.add('show');
+            setTimeout(() => t.classList.remove('show'), 3000);
+        }
+        
+        // 监听输入
+        ['bf', 'ln', 'dn', 'sn', 'ex', 'base'].forEach(id => {
+            document.getElementById(id)?.addEventListener('input', () => {
+                const base = parseInt(document.getElementById('base').value) || 0;
+                const intake = (parseInt(document.getElementById('bf').value) || 0) +
+                              (parseInt(document.getElementById('ln').value) || 0) +
+                              (parseInt(document.getElementById('dn').value) || 0) +
+                              (parseInt(document.getElementById('sn').value) || 0);
+                const burn = base + (parseInt(document.getElementById('ex').value) || 0);
+                const net = intake - burn;
+                document.getElementById('in').textContent = intake;
+                document.getElementById('out').textContent = burn;
+                document.getElementById('lossExp').textContent = (net < 0 ? Math.abs(net) / 7700 : 0).toFixed(3);
+            });
+        });
+        
+        // 启动
+        init();
+    </script>
+</body>
+</html>
